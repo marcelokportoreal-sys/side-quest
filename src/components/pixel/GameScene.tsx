@@ -1,24 +1,24 @@
 "use client";
 
 /**
- * Cena viva do Side Quest — pixel art 2D com parallax (clima Blasphemous).
- * O herói CAMINHA enquanto tem energia (idle avançando); sem energia, senta
- * numa fogueira e descansa. O cenário e as roupas evoluem com o level:
- * beco pobre → vila → cidade → cidade alta.
- * Render: buffer interno 320×144 escalado com pixels nítidos; rAF + Δt.
+ * Cena viva v2 — pixel art 2D com parallax, redesenhada para os 6 estágios da
+ * referência (Maltrapilho → Dono do Mundo). O herói caminha enquanto há energia
+ * (idle avançando); sem energia, descansa numa fogueira. Cenário, arquitetura e
+ * luz evoluem com o tier: ruínas → vila → cidade → distrito nobre → palácio.
+ * Render: buffer 320×160 escalado (pixels nítidos); rAF + Δt.
  */
 
 import { useEffect, useRef } from "react";
 import {
-  desenharSprite, paletaHeroi, tierDoLevel,
-  HEROI_CORPO, HEROI_PERNAS_ANDAR, HEROI_SENTADO,
+  desenharSprite, desenharHeroiAndando, desenharHeroiSentado,
+  tierDoLevel, TIERS,
   FOGUEIRA, PALETA_FOGUEIRA, MOEDA, PALETA_MOEDA,
 } from "./sprites";
 
 const W = 320;
-const H = 144;
-const CHAO = 122;
-const HEROI_X = 118;
+const H = 160;
+const CHAO = 134;
+const HEROI_X = 116;
 const ENERGIA_POR_SEGUNDO = 10 / 3600; // espelha ENERGIA_POR_HORA do engine
 
 interface Props {
@@ -30,7 +30,7 @@ interface Props {
   readonly nome: string;
 }
 
-interface Moeda { wx: number; vy: number; y: number; frame: number }
+interface Moeda { wx: number; y: number; frame: number }
 interface Particula { x: number; y: number; vx: number; vy: number; vida: number; cor: string }
 
 function hash(n: number): number {
@@ -40,38 +40,71 @@ function hash(n: number): number {
 }
 
 interface Estagio {
-  ceu: [string, string];
+  ceuAlto: string; ceuBaixo: string;
   longe: string;
-  predioCor: string;
-  predioLuz: string;
-  alturaMin: number;
-  alturaMax: number;
-  densidadeJanelas: number;
-  nome: string;
+  predio: string; predioEscuro: string; luz: string;
+  altMin: number; altMax: number; densJanelas: number;
+  janelaArco: boolean; torres: boolean; bandeiras: boolean; calcamento: boolean;
+  chao: string; chaoDetalhe: string;
+  lua: string;
 }
 
-function estagioDoLevel(level: number): Estagio {
-  const t = tierDoLevel(level);
-  const est: readonly Estagio[] = [
-    { ceu: ["#12101c", "#241d2e"], longe: "#1a1622", predioCor: "#221c26", predioLuz: "#7a5c30", alturaMin: 18, alturaMax: 34, densidadeJanelas: 0.12, nome: "Beco das Sombras" },
-    { ceu: ["#141425", "#2a2338"], longe: "#1e1a2a", predioCor: "#282130", predioLuz: "#9a7438", alturaMin: 24, alturaMax: 44, densidadeJanelas: 0.22, nome: "Vila do Cadastro" },
-    { ceu: ["#171730", "#302844"], longe: "#242038", predioCor: "#2e2738", predioLuz: "#b98e44", alturaMin: 34, alturaMax: 62, densidadeJanelas: 0.34, nome: "Cidade Baixa" },
-    { ceu: ["#1b1b3a", "#383054"], longe: "#2a2544", predioCor: "#363044", predioLuz: "#d4ac54", alturaMin: 44, alturaMax: 80, densidadeJanelas: 0.45, nome: "Cidade Alta" },
-  ];
-  return est[t]!;
-}
+/** 6 estágios casando com os tiers da referência. */
+const ESTAGIOS: readonly Estagio[] = [
+  { // 0 O Nada — ruínas e barracos, céu quase preto
+    ceuAlto: "#0d0b12", ceuBaixo: "#1e1824", longe: "#1d1722",
+    predio: "#2a222e", predioEscuro: "#171118", luz: "#8a6430",
+    altMin: 12, altMax: 26, densJanelas: 0.08,
+    janelaArco: false, torres: false, bandeiras: false, calcamento: false,
+    chao: "#1b151f", chaoDetalhe: "#2c2331", lua: "#8a8578",
+  },
+  { // 1 Primeiros Passos — vila
+    ceuAlto: "#0f0e18", ceuBaixo: "#241e2e", longe: "#221c2e",
+    predio: "#302636", predioEscuro: "#1a1420", luz: "#9a7038",
+    altMin: 18, altMax: 36, densJanelas: 0.16,
+    janelaArco: false, torres: false, bandeiras: false, calcamento: false,
+    chao: "#1e1722", chaoDetalhe: "#31273a", lua: "#9a9384",
+  },
+  { // 2 Vida Decente — cidade baixa, calçamento
+    ceuAlto: "#121226", ceuBaixo: "#292236", longe: "#1e1928",
+    predio: "#2b2230", predioEscuro: "#1a1420", luz: "#a87c38",
+    altMin: 26, altMax: 50, densJanelas: 0.26,
+    janelaArco: false, torres: false, bandeiras: false, calcamento: true,
+    chao: "#1d1720", chaoDetalhe: "#2a212e", lua: "#aca390",
+  },
+  { // 3 Prosperidade — cidade com bandeiras
+    ceuAlto: "#15152e", ceuBaixo: "#302842", longe: "#231d33",
+    predio: "#322838", predioEscuro: "#1f1826", luz: "#c09040",
+    altMin: 34, altMax: 66, densJanelas: 0.34,
+    janelaArco: true, torres: false, bandeiras: true, calcamento: true,
+    chao: "#201925", chaoDetalhe: "#2e2434", lua: "#bcb29c",
+  },
+  { // 4 Excesso e Poder — distrito nobre, torres de catedral
+    ceuAlto: "#191540", ceuBaixo: "#3a2c50", longe: "#2a2040",
+    predio: "#3a2c42", predioEscuro: "#241a2e", luz: "#d4a44a",
+    altMin: 44, altMax: 84, densJanelas: 0.42,
+    janelaArco: true, torres: true, bandeiras: true, calcamento: true,
+    chao: "#241c2b", chaoDetalhe: "#342640", lua: "#cabfa6",
+  },
+  { // 5 O Topo — palácio, céu régio, ouro por toda parte
+    ceuAlto: "#1d1850", ceuBaixo: "#453260", longe: "#332650",
+    predio: "#443252", predioEscuro: "#2c2038", luz: "#e8c460",
+    altMin: 54, altMax: 100, densJanelas: 0.5,
+    janelaArco: true, torres: true, bandeiras: true, calcamento: true,
+    chao: "#281f30", chaoDetalhe: "#3a2b48", lua: "#d8ceb4",
+  },
+];
 
 export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const st = useRef({
     worldX: 0, energia, level, momentum,
     frameAndar: 0, tAndar: 0, frameFogo: 0, tFogo: 0,
-    pulsoVisto: pulso, pulo: 0,
+    pulsoVisto: pulso, pulo: 0, flashLevel: 0, levelVisto: level,
     moedas: [] as Moeda[], particulas: [] as Particula[],
-    proximaMoeda: 80, levelVisto: level, flashLevel: 0,
+    proximaMoeda: 80,
   });
 
-  // Sincroniza props → estado mutável da cena (sem reiniciar o loop).
   useEffect(() => {
     const s = st.current;
     s.energia = energia;
@@ -79,11 +112,11 @@ export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
     if (pulso !== s.pulsoVisto) {
       s.pulsoVisto = pulso;
       s.pulo = 1;
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 14; i++) {
         s.particulas.push({
-          x: HEROI_X + 8, y: CHAO - 14,
-          vx: (hash(pulso * 31 + i) - 0.5) * 60,
-          vy: -40 - hash(pulso * 17 + i) * 50,
+          x: HEROI_X + 10, y: CHAO - 18,
+          vx: (hash(pulso * 31 + i) - 0.5) * 70,
+          vy: -50 - hash(pulso * 17 + i) * 55,
           vida: 1, cor: i % 3 === 0 ? "#e8cc7a" : "#c9a24f",
         });
       }
@@ -108,200 +141,287 @@ export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
 
     function desenhar(agora: number) {
       const s = st.current;
+      const c = ctx as CanvasRenderingContext2D;
       const dt = Math.min(0.05, (agora - tAnterior) / 1000);
       tAnterior = agora;
 
+      const tier = tierDoLevel(s.level);
+      const est = ESTAGIOS[tier]!;
       const andando = s.energia > 0.01;
-      const veloc = andando ? 26 + s.momentum * 2.2 : 0;
+      const veloc = andando ? 24 + s.momentum * 2 : 0;
+
       if (andando) {
         s.worldX += veloc * dt;
-        // Drena a energia visualmente no mesmo ritmo do engine (fonte da verdade = servidor).
         s.energia = Math.max(0, s.energia - ENERGIA_POR_SEGUNDO * dt);
         s.tAndar += dt;
-        if (s.tAndar > 0.11) { s.tAndar = 0; s.frameAndar = (s.frameAndar + 1) % 4; }
+        if (s.tAndar > 0.085) { s.tAndar = 0; s.frameAndar = (s.frameAndar + 1) % 6; }
       }
       s.tFogo += dt;
-      if (s.tFogo > 0.16) { s.tFogo = 0; s.frameFogo = (s.frameFogo + 1) % 3; }
-      if (s.pulo > 0) s.pulo = Math.max(0, s.pulo - dt * 2.6);
-      if (s.flashLevel > 0) s.flashLevel = Math.max(0, s.flashLevel - dt * 1.2);
+      if (s.tFogo > 0.15) { s.tFogo = 0; s.frameFogo = (s.frameFogo + 1) % 3; }
+      if (s.pulo > 0) s.pulo = Math.max(0, s.pulo - dt * 2.4);
+      if (s.flashLevel > 0) s.flashLevel = Math.max(0, s.flashLevel - dt);
 
-      const est = estagioDoLevel(s.level);
-      const c = ctx as CanvasRenderingContext2D;
-
-      // Céu (duas faixas com dithering na junção) + estrelas + lua
-      c.fillStyle = est.ceu[0];
-      c.fillRect(0, 0, W, 60);
-      c.fillStyle = est.ceu[1];
-      c.fillRect(0, 60, W, CHAO - 60);
+      // ---- CÉU: degradê em 3 faixas com dithering + estrelas + lua ----
+      c.fillStyle = est.ceuAlto;
+      c.fillRect(0, 0, W, 52);
+      c.fillStyle = est.ceuBaixo;
+      c.fillRect(0, 52, W, CHAO - 52);
       for (let x = 0; x < W; x += 2) {
-        if (hash(x * 7) > 0.5) { c.fillStyle = est.ceu[0]; c.fillRect(x, 60, 1, 1); }
+        if (hash(x * 7) > 0.5) { c.fillStyle = est.ceuAlto; c.fillRect(x, 52, 1, 1); }
+        if (hash(x * 13) > 0.6) { c.fillStyle = est.ceuAlto; c.fillRect(x + 1, 56, 1, 1); }
       }
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 46; i++) {
         const sx = Math.floor(hash(i * 13) * W);
-        const sy = Math.floor(hash(i * 29) * 55);
-        const pisca = hash(i * 7 + Math.floor(agora / 900)) > 0.15;
-        if (pisca) { c.fillStyle = i % 5 === 0 ? "#8a86a0" : "#55516a"; c.fillRect(sx, sy, 1, 1); }
+        const sy = Math.floor(hash(i * 29) * 48);
+        if (hash(i * 7 + Math.floor(agora / 800)) > 0.12) {
+          c.fillStyle = i % 6 === 0 ? "#9a94ac" : "#5b5670";
+          c.fillRect(sx, sy, 1, 1);
+        }
       }
-      c.fillStyle = "#c9c4b4";
-      c.beginPath(); c.arc(262, 26, 11, 0, Math.PI * 2); c.fill();
-      c.fillStyle = est.ceu[0];
-      c.beginPath(); c.arc(258, 23, 10, 0, Math.PI * 2); c.fill();
+      // Lua com cratera e halo
+      c.fillStyle = "rgba(210,200,170,0.06)";
+      c.beginPath(); c.arc(266, 26, 16, 0, Math.PI * 2); c.fill();
+      c.fillStyle = est.lua;
+      c.beginPath(); c.arc(266, 26, 11, 0, Math.PI * 2); c.fill();
+      c.fillStyle = est.ceuAlto;
+      c.beginPath(); c.arc(261, 22, 9, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "rgba(0,0,0,0.12)";
+      c.fillRect(268, 28, 3, 2); c.fillRect(271, 24, 2, 2);
 
-      // Montanhas ao longe (parallax 0.2)
+      // ---- MONTANHAS ao longe (parallax 0.18) ----
       c.fillStyle = est.longe;
-      const off02 = s.worldX * 0.2;
-      for (let i = Math.floor(off02 / 60) - 1; i < Math.floor(off02 / 60) + 8; i++) {
-        const bx = i * 60 - off02;
-        const alt = 24 + Math.floor(hash(i * 101) * 22);
+      const off02 = s.worldX * 0.18;
+      for (let i = Math.floor(off02 / 64) - 1; i < Math.floor(off02 / 64) + 7; i++) {
+        const bx = i * 64 - off02;
+        const alt = 22 + Math.floor(hash(i * 101) * 26);
         c.beginPath();
-        c.moveTo(bx, CHAO - 18);
-        c.lineTo(bx + 30, CHAO - 18 - alt);
-        c.lineTo(bx + 60, CHAO - 18);
+        c.moveTo(bx, CHAO - 20);
+        c.lineTo(bx + 32, CHAO - 20 - alt);
+        c.lineTo(bx + 64, CHAO - 20);
         c.fill();
       }
-
-      // Prédios (parallax 0.55) — o estágio muda a silhueta da cidade
-      const off05 = s.worldX * 0.55;
-      for (let i = Math.floor(off05 / 34) - 1; i < Math.floor(off05 / 34) + 11; i++) {
-        const bx = Math.floor(i * 34 - off05);
-        const alt = est.alturaMin + Math.floor(hash(i * 37) * (est.alturaMax - est.alturaMin));
-        const larg = 22 + Math.floor(hash(i * 53) * 10);
-        c.fillStyle = est.predioCor;
-        c.fillRect(bx, CHAO - 8 - alt, larg, alt);
-        c.fillStyle = "#141018";
-        c.fillRect(bx, CHAO - 8 - alt, larg, 2);
-        for (let wy = 0; wy < Math.floor(alt / 8); wy++) {
-          for (let wx = 0; wx < Math.floor(larg / 7); wx++) {
-            const acesa = hash(i * 997 + wy * 31 + wx * 7) < est.densidadeJanelas;
-            if (!acesa) continue;
-            const flicker = hash(i * 13 + wy * 7 + wx + Math.floor(agora / 1400)) > 0.06;
-            c.fillStyle = flicker ? est.predioLuz : "#3a3020";
-            c.fillRect(bx + 3 + wx * 7, CHAO - 14 - alt + wy * 8 + 4, 2, 3);
+      // Torres de catedral no horizonte (tiers altos)
+      if (est.torres) {
+        const offT = s.worldX * 0.3;
+        for (let i = Math.floor(offT / 150) - 1; i < Math.floor(offT / 150) + 4; i++) {
+          const tx = Math.floor(i * 150 - offT) + 60;
+          if (tx < -20 || tx > W + 20) continue;
+          const alt = 60 + Math.floor(hash(i * 211) * 24);
+          c.fillStyle = est.longe;
+          c.fillRect(tx, CHAO - 18 - alt, 10, alt);
+          c.beginPath();
+          c.moveTo(tx - 1, CHAO - 18 - alt);
+          c.lineTo(tx + 5, CHAO - 30 - alt);
+          c.lineTo(tx + 11, CHAO - 18 - alt);
+          c.fill();
+          c.fillStyle = est.luz;
+          c.fillRect(tx + 4, CHAO - 26 - alt, 1, 5); // cruz
+          c.fillRect(tx + 3, CHAO - 24 - alt, 3, 1);
+          if (hash(i * 5 + Math.floor(agora / 1600)) > 0.3) {
+            c.fillRect(tx + 4, CHAO - 10 - alt, 2, 3); // sineira acesa
           }
         }
       }
 
-      // Chão
-      c.fillStyle = "#1c171d";
-      c.fillRect(0, CHAO - 8, W, H - CHAO + 8);
-      c.fillStyle = "#292130";
-      c.fillRect(0, CHAO - 8, W, 2);
-      const off1 = s.worldX;
-      for (let i = Math.floor(off1 / 14); i < Math.floor(off1 / 14) + 25; i++) {
-        const px = Math.floor(i * 14 - off1);
-        if (hash(i * 71) > 0.45) {
-          c.fillStyle = "#241d2b";
-          c.fillRect(px, CHAO - 5 + Math.floor(hash(i * 3) * 8), 3 + Math.floor(hash(i * 11) * 3), 2);
+      // ---- PRÉDIOS (parallax 0.55) — arquitetura por estágio ----
+      const off05 = s.worldX * 0.55;
+      for (let i = Math.floor(off05 / 36) - 1; i < Math.floor(off05 / 36) + 11; i++) {
+        const bx = Math.floor(i * 36 - off05);
+        const alt = est.altMin + Math.floor(hash(i * 37) * (est.altMax - est.altMin));
+        const larg = 24 + Math.floor(hash(i * 53) * 10);
+        // corpo
+        c.fillStyle = est.predio;
+        c.fillRect(bx, CHAO - 10 - alt, larg, alt);
+        // telhado: barraco torto (tier 0-1) vs cornija reta
+        c.fillStyle = est.predioEscuro;
+        if (tier <= 1) {
+          const inclinacao = hash(i * 3) > 0.5 ? 2 : -2;
+          c.beginPath();
+          c.moveTo(bx - 2, CHAO - 10 - alt + 2);
+          c.lineTo(bx + larg / 2, CHAO - 14 - alt + inclinacao);
+          c.lineTo(bx + larg + 2, CHAO - 10 - alt + 2);
+          c.lineTo(bx + larg + 2, CHAO - 8 - alt + 2);
+          c.lineTo(bx - 2, CHAO - 8 - alt + 2);
+          c.fill();
+        } else {
+          c.fillRect(bx - 1, CHAO - 12 - alt, larg + 2, 3);
+          if (tier >= 4 && hash(i * 91) > 0.55) { // ameias nobres
+            for (let a = 0; a < larg; a += 5) c.fillRect(bx + a, CHAO - 15 - alt, 3, 3);
+          }
+        }
+        // faixa de sombra lateral
+        c.fillStyle = est.predioEscuro;
+        c.fillRect(bx + larg - 3, CHAO - 10 - alt, 3, alt);
+        // janelas (arcos góticos nos tiers altos)
+        for (let wy = 0; wy < Math.floor((alt - 6) / 9); wy++) {
+          for (let wx = 0; wx < Math.floor(larg / 8); wx++) {
+            if (hash(i * 997 + wy * 31 + wx * 7) >= est.densJanelas) continue;
+            const jx = bx + 3 + wx * 8;
+            const jy = CHAO - 16 - alt + wy * 9 + 5;
+            const flicker = hash(i * 13 + wy * 7 + wx + Math.floor(agora / 1300)) > 0.05;
+            c.fillStyle = flicker ? est.luz : "#3a3020";
+            c.fillRect(jx, jy, 2, 3);
+            if (est.janelaArco) c.fillRect(jx, jy - 1, 2, 1);
+          }
+        }
+        // bandeiras/estandartes pendurados (tiers 3+)
+        if (est.bandeiras && hash(i * 61) > 0.6) {
+          const fx = bx + 4 + Math.floor(hash(i * 43) * (larg - 10));
+          const onda = Math.floor(Math.sin(agora / 260 + i) * 1.5);
+          c.fillStyle = tier >= 5 ? "#3a2a52" : "#4e2440";
+          c.fillRect(fx, CHAO - 10 - alt + 4, 4, 8 + onda);
+          c.fillStyle = est.luz;
+          c.fillRect(fx + 1, CHAO - 10 - alt + 6, 2, 1);
         }
       }
 
-      // Lampiões góticos (camada do chão)
-      for (let i = Math.floor(off1 / 110) - 1; i < Math.floor(off1 / 110) + 4; i++) {
-        const lx = Math.floor(i * 110 - off1) + 30;
-        if (lx < -10 || lx > W + 10) continue;
-        c.fillStyle = "rgba(216,166,74,0.05)";
-        c.fillRect(lx - 12, CHAO - 46, 26, 40);
-        c.fillStyle = "rgba(216,166,74,0.08)";
-        c.fillRect(lx - 7, CHAO - 42, 16, 34);
-        c.fillStyle = "#171219";
-        c.fillRect(lx, CHAO - 40, 2, 32);
-        c.fillRect(lx - 3, CHAO - 42, 8, 3);
-        const luzOsc = 0.75 + 0.25 * Math.sin(agora / 220 + i * 9);
-        c.fillStyle = `rgba(232,190,90,${luzOsc})`;
-        c.fillRect(lx - 1, CHAO - 39, 4, 4);
+      // ---- CHÃO ----
+      c.fillStyle = est.chao;
+      c.fillRect(0, CHAO - 10, W, H - CHAO + 10);
+      c.fillStyle = est.chaoDetalhe;
+      c.fillRect(0, CHAO - 10, W, 2);
+      const off1 = s.worldX;
+      if (est.calcamento) {
+        // paralelepípedos em fileiras alternadas
+        for (let fila = 0; fila < 3; fila++) {
+          const fy = CHAO - 6 + fila * 5;
+          const desloc = fila % 2 === 0 ? 0 : 7;
+          for (let i = Math.floor(off1 / 14) - 1; i < Math.floor(off1 / 14) + 25; i++) {
+            const px = Math.floor(i * 14 - off1) + desloc;
+            c.fillStyle = hash(i * 71 + fila * 13) > 0.5 ? est.chaoDetalhe : est.chao;
+            c.fillRect(px, fy, 12, 4);
+            c.fillStyle = "rgba(0,0,0,0.25)";
+            c.fillRect(px + 12, fy, 2, 4);
+          }
+        }
+      } else {
+        // terra batida com pedras e mato seco
+        for (let i = Math.floor(off1 / 12); i < Math.floor(off1 / 12) + 30; i++) {
+          const px = Math.floor(i * 12 - off1);
+          const h1 = hash(i * 71);
+          if (h1 > 0.5) {
+            c.fillStyle = est.chaoDetalhe;
+            c.fillRect(px, CHAO - 5 + Math.floor(hash(i * 3) * 10), 3 + Math.floor(h1 * 3), 2);
+          }
+          if (h1 < 0.18) {
+            c.fillStyle = "#3a3226";
+            c.fillRect(px, CHAO - 11, 1, 3);
+            c.fillRect(px + 2, CHAO - 10, 1, 2);
+          }
+        }
       }
 
-      // Moedas no caminho (só andando): nascem à frente, o herói coleta
+      // ---- LAMPIÕES (chão) ----
+      for (let i = Math.floor(off1 / 120) - 1; i < Math.floor(off1 / 120) + 4; i++) {
+        const lx = Math.floor(i * 120 - off1) + 34;
+        if (lx < -14 || lx > W + 14) continue;
+        const luzOsc = 0.7 + 0.3 * Math.sin(agora / 200 + i * 9);
+        c.fillStyle = `rgba(220,170,80,${0.04 * luzOsc})`;
+        c.fillRect(lx - 14, CHAO - 52, 30, 46);
+        c.fillStyle = `rgba(220,170,80,${0.07 * luzOsc})`;
+        c.fillRect(lx - 8, CHAO - 48, 18, 40);
+        c.fillStyle = "#15101a";
+        c.fillRect(lx, CHAO - 46, 2, 38);
+        c.fillRect(lx - 4, CHAO - 48, 10, 2);
+        c.fillRect(lx - 3, CHAO - 46, 2, 3);
+        c.fillRect(lx + 3, CHAO - 46, 2, 3);
+        c.fillStyle = `rgba(238,196,96,${luzOsc})`;
+        c.fillRect(lx - 2, CHAO - 45, 6, 5);
+        c.fillStyle = "#15101a";
+        c.fillRect(lx - 3, CHAO - 40, 8, 1);
+      }
+
+      // ---- MOEDAS no caminho (escala 2, casando com o herói) ----
       if (andando) {
         s.proximaMoeda -= veloc * dt;
         if (s.proximaMoeda <= 0) {
-          s.proximaMoeda = 70 + hash(Math.floor(s.worldX)) * 80;
-          s.moedas.push({ wx: s.worldX + W - HEROI_X + 10, vy: 0, y: CHAO - 12, frame: 0 });
+          s.proximaMoeda = 70 + hash(Math.floor(s.worldX)) * 90;
+          s.moedas.push({ wx: s.worldX + W - HEROI_X + 12, y: CHAO - 18, frame: 0 });
         }
       }
       for (const m of s.moedas) {
         m.frame = (m.frame + dt * 9) % 4;
         const mx = Math.floor(HEROI_X + (m.wx - s.worldX));
-        desenharSprite(c, MOEDA[Math.floor(m.frame)]!, PALETA_MOEDA, mx, Math.floor(m.y));
+        const flutua = Math.floor(Math.sin(agora / 240 + m.wx) * 2);
+        desenharSprite(c, MOEDA[Math.floor(m.frame)]!, PALETA_MOEDA, mx, Math.floor(m.y) + flutua, 2);
       }
       s.moedas = s.moedas.filter((m) => {
         const mx = HEROI_X + (m.wx - s.worldX);
-        if (mx <= HEROI_X + 10) {
-          for (let i = 0; i < 4; i++) {
+        if (mx <= HEROI_X + 18) {
+          for (let i = 0; i < 5; i++) {
             s.particulas.push({
-              x: HEROI_X + 8, y: CHAO - 16, vx: (hash(m.wx + i) - 0.3) * 40,
-              vy: -30 - hash(m.wx * 3 + i) * 30, vida: 0.7, cor: "#e8cc7a",
+              x: HEROI_X + 20, y: CHAO - 30, vx: (hash(m.wx + i) - 0.3) * 45,
+              vy: -35 - hash(m.wx * 3 + i) * 30, vida: 0.7, cor: "#e8cc7a",
             });
           }
           return false;
         }
-        return mx > -20;
+        return mx > -24;
       });
 
-      // Herói (ou descanso na fogueira)
-      const paleta = paletaHeroi(tierDoLevel(s.level));
-      const bob = andando && (s.frameAndar === 1 || s.frameAndar === 3) ? 1 : 0;
-      const alturaPulo = Math.floor(Math.sin(s.pulo * Math.PI) * 10);
+      // ---- HERÓI (escala 2 — presença de protagonista) ----
+      const alturaPulo = Math.floor(Math.sin(s.pulo * Math.PI) * 14);
       if (andando || s.pulo > 0) {
-        const hy = CHAO - 22 + bob - alturaPulo;
-        c.fillStyle = "rgba(0,0,0,0.35)";
-        c.fillRect(HEROI_X + 3, CHAO - 1, 11, 2);
-        desenharSprite(c, HEROI_PERNAS_ANDAR[s.frameAndar]!, paleta, HEROI_X, hy + 16);
-        desenharSprite(c, HEROI_CORPO, paleta, HEROI_X, hy);
+        c.fillStyle = "rgba(0,0,0,0.4)";
+        c.fillRect(HEROI_X + 8, CHAO - 1, 26, 3);
+        desenharHeroiAndando(c, tier, s.frameAndar, HEROI_X, CHAO - 60 - alturaPulo, 2);
       } else {
-        desenharSprite(c, FOGUEIRA[s.frameFogo]!, PALETA_FOGUEIRA, HEROI_X + 20, CHAO - 10);
-        if (hash(Math.floor(agora / 300)) > 0.4) {
+        desenharSprite(c, FOGUEIRA[s.frameFogo]!, PALETA_FOGUEIRA, HEROI_X + 52, CHAO - 24, 2);
+        if (hash(Math.floor(agora / 280)) > 0.45) {
           s.particulas.push({
-            x: HEROI_X + 25 + hash(agora) * 4, y: CHAO - 10,
-            vx: (hash(agora * 3) - 0.5) * 6, vy: -14 - hash(agora * 7) * 10,
-            vida: 0.9, cor: hash(agora * 11) > 0.5 ? "#d97b32" : "#e8b34a",
+            x: HEROI_X + 62 + hash(agora) * 6, y: CHAO - 22,
+            vx: (hash(agora * 3) - 0.5) * 7, vy: -16 - hash(agora * 7) * 12,
+            vida: 0.9, cor: hash(agora * 11) > 0.5 ? "#d4762f" : "#e8b34a",
           });
         }
-        c.fillStyle = "rgba(0,0,0,0.35)";
-        c.fillRect(HEROI_X + 2, CHAO - 1, 12, 2);
-        desenharSprite(c, HEROI_SENTADO, paleta, HEROI_X, CHAO - 16);
-        c.fillStyle = "rgba(232,179,74,0.06)";
-        c.fillRect(HEROI_X + 8, CHAO - 30, 34, 26);
+        const fogoLuz = 0.5 + 0.5 * Math.sin(agora / 150);
+        c.fillStyle = `rgba(232,150,60,${0.05 + 0.03 * fogoLuz})`;
+        c.fillRect(HEROI_X + 10, CHAO - 54, 80, 50);
+        c.fillStyle = "rgba(0,0,0,0.4)";
+        c.fillRect(HEROI_X + 6, CHAO - 1, 30, 3);
+        desenharHeroiSentado(c, tier, HEROI_X, CHAO - 40, 2);
       }
 
-      // Partículas
+      // ---- PARTÍCULAS ----
       for (const p of s.particulas) {
-        p.vida -= dt * 1.4;
+        p.vida -= dt * 1.3;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
-        p.vy += 90 * dt;
+        p.vy += 85 * dt;
         if (p.vida > 0) { c.fillStyle = p.cor; c.fillRect(Math.floor(p.x), Math.floor(p.y), 1, 1); }
       }
       s.particulas = s.particulas.filter((p) => p.vida > 0 && p.y < H);
 
-      // Névoa (duas faixas em movimento, clima gótico)
+      // ---- NÉVOA (clima gótico) ----
       for (let i = 0; i < 2; i++) {
-        const fy = CHAO - 16 + i * 8;
-        const foff = (agora / (60 + i * 25)) % W;
-        c.fillStyle = `rgba(150,140,170,${0.05 - i * 0.015})`;
+        const fy = CHAO - 18 + i * 9;
+        const foff = (agora / (55 + i * 30)) % W;
+        c.fillStyle = `rgba(160,150,180,${0.05 - i * 0.015})`;
         for (let x = 0; x < W; x += 4) {
-          const ondas = Math.sin((x + foff) / 22 + i) * 3;
-          c.fillRect(x, fy + ondas, 4, 6);
+          const onda = Math.sin((x + foff) / 24 + i * 2) * 3;
+          c.fillRect(x, fy + onda, 4, 7);
         }
       }
 
-      // Flash dourado de level up
+      // ---- FLASH de level up + vinheta ----
       if (s.flashLevel > 0) {
-        c.fillStyle = `rgba(232,204,122,${s.flashLevel * 0.18})`;
+        c.fillStyle = `rgba(232,204,122,${s.flashLevel * 0.16})`;
         c.fillRect(0, 0, W, H);
       }
-
-      // Vinheta (bordas escuras)
-      c.fillStyle = "rgba(10,8,12,0.5)";
+      c.fillStyle = "rgba(8,6,10,0.55)";
       c.fillRect(0, 0, W, 3);
       c.fillRect(0, H - 3, W, 3);
+      c.fillRect(0, 0, 3, H);
+      c.fillRect(W - 3, 0, 3, H);
 
-      // Placa do estágio
-      c.fillStyle = "rgba(10,8,12,0.55)";
-      c.fillRect(6, 6, est.nome.length * 5 + 8, 11);
-      c.fillStyle = "#a89e8e";
+      // ---- PLACA do estágio ----
+      const t = TIERS[tier]!;
+      const rotulo = `${t.nome} · ${t.sub}`;
+      c.fillStyle = "rgba(8,6,10,0.6)";
+      c.fillRect(6, 6, rotulo.length * 5 + 10, 12);
+      c.fillStyle = "#b8ac96";
       c.font = "7px monospace";
-      c.fillText(est.nome, 10, 14);
+      c.fillText(rotulo, 11, 15);
 
       if (!reduzido) raf = requestAnimationFrame(desenhar);
     }
@@ -310,9 +430,10 @@ export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const tierAgora = tierDoLevel(level);
   return (
     <div className="sq-scene" role="img"
-      aria-label={`${nome} ${energia > 0 ? "caminhando pela" : "descansando na"} ${estagioDoLevel(level).nome}`}>
+      aria-label={`${nome}, ${TIERS[tierAgora]!.nome}, ${energia > 0 ? "caminhando" : "descansando na fogueira"}`}>
       <canvas ref={canvasRef} width={W} height={H} />
     </div>
   );

@@ -7,7 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
-import { carregarJogo, criarPersonagem, fazerCheckin, resolverEvento, criarTarefa, fazerCheckinTarefa } from "../src/domain/game.service";
+import { carregarJogo, criarPersonagem, fazerCheckin, resolverEvento, criarTarefa, fazerCheckinTarefa, comprarUpgrade } from "../src/domain/game.service";
 
 function envLocal(nome: string): string {
   const conteudo = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
@@ -97,4 +97,14 @@ let bloqueouTarefa = false;
 try { await fazerCheckinTarefa(db, su.user.id, tarefa.id, null); } catch { bloqueouTarefa = true; }
 ok(bloqueouTarefa, "check-in duplicado de tarefa diária rejeitado");
 
-console.log("\nSMOKE OK — auth, RLS, seed, engine, estágios, eventos, todo-list do usuário e persistência funcionando no banco real.");
+console.log("11. loja: comprar upgrade (sink de ouro)…");
+const jogoPre = await carregarJogo(db, su.user.id);
+const ouroPre = jogoPre!.ouro;
+ok(ouroPre >= 120, `tem ouro para a Picareta (≥120) — ${ouroPre}`);
+ok(jogoPre!.taxa.ouroHora > 0, `taxa de produção exposta — ${jogoPre!.taxa.ouroHora} ouro/h`);
+const ru = await comprarUpgrade(db, su.user.id, "picareta");
+ok(ru.nivel === 1, "picareta subiu para nível 1");
+ok(ru.ouro === ouroPre - 120, `ouro debitado (−120) — ${ouroPre} → ${ru.ouro}`);
+ok(ru.taxa.ouroHora > jogoPre!.taxa.ouroHora, `produção de ouro aumentou — ${jogoPre!.taxa.ouroHora} → ${ru.taxa.ouroHora}/h`);
+
+console.log("\nSMOKE OK — auth, RLS, seed, engine, estágios, eventos, todo-list, loja/upgrades e persistência funcionando no banco real.");

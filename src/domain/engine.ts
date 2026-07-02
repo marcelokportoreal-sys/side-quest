@@ -10,6 +10,7 @@
  */
 
 import { estagioAtual } from "./estagios";
+import { bonusDeUpgrades } from "./upgrades";
 
 export const ENERGIA_POR_HORA = 10; // 1 ponto de energia ≈ 6min de grind
 export const OURO_BASE_HORA = 60;
@@ -54,8 +55,8 @@ export function xpParaProximoLevel(level: number): number {
   return Math.round(100 * Math.pow(level, 1.5));
 }
 
-export function energiaMaxima(atributos: Atributos): number {
-  return 100 + atributos.vigor * 5;
+export function energiaMaxima(atributos: Atributos, bonusUpgrade = 0): number {
+  return 100 + atributos.vigor * 5 + bonusUpgrade;
 }
 
 export function multiplicadorMomentum(momentum: number): number {
@@ -102,16 +103,18 @@ export function tick(estado: EstadoPersonagem, agora: Date): ResultadoTick {
   const deltaMs = agora.getTime() - estado.lastTick.getTime();
   if (deltaMs <= 0) return { estado, ouroGanho: 0, xpGanho: 0, levelsGanhos: 0, horasProdutivas: 0 };
 
+  const bonus = bonusDeUpgrades(estado.sistemas);
+  const consumoPorHora = ENERGIA_POR_HORA * (1 - bonus.eficienciaEnergia);
   const momentumAtual = decairMomentum(estado.momentum, estado.ultimoCheckinDia, diaLocal(agora));
   const deltaHoras = deltaMs / 3_600_000;
-  const horasComEnergia = estado.energia / ENERGIA_POR_HORA;
+  const horasComEnergia = estado.energia / consumoPorHora;
   const horasProdutivas = Math.min(deltaHoras, horasComEnergia);
 
   const mult = multiplicadorMomentum(momentumAtual);
   const estagio = estagioAtual(estado);
-  const ouroGanho = Math.floor(horasProdutivas * OURO_BASE_HORA * (1 + estado.atributos.fortuna * 0.02) * mult * estagio.multOuro);
-  const xpGanho = Math.floor(horasProdutivas * XP_BASE_HORA * (1 + estado.atributos.mente * 0.02) * mult * estagio.multXp);
-  const energiaRestante = Math.max(0, estado.energia - horasProdutivas * ENERGIA_POR_HORA);
+  const ouroGanho = Math.floor(horasProdutivas * OURO_BASE_HORA * (1 + estado.atributos.fortuna * 0.02) * mult * estagio.multOuro * bonus.ouroMult);
+  const xpGanho = Math.floor(horasProdutivas * XP_BASE_HORA * (1 + estado.atributos.mente * 0.02) * mult * estagio.multXp * bonus.xpMult);
+  const energiaRestante = Math.max(0, estado.energia - horasProdutivas * consumoPorHora);
 
   const { level, xp, levels } = aplicarXp(estado.level, estado.xp, xpGanho);
 
@@ -129,6 +132,20 @@ export function tick(estado: EstadoPersonagem, agora: Date): ResultadoTick {
     xpGanho,
     levelsGanhos: levels,
     horasProdutivas,
+  };
+}
+
+/**
+ * Taxa de produção POR HORA no estado atual (para exibir "ouro/h", "xp/h").
+ * Reflete todos os multiplicadores ativos (atributos, momentum, estágio, upgrades).
+ */
+export function taxaProducao(estado: EstadoPersonagem): { ouroHora: number; xpHora: number } {
+  const bonus = bonusDeUpgrades(estado.sistemas);
+  const mult = multiplicadorMomentum(decairMomentum(estado.momentum, estado.ultimoCheckinDia, diaLocal(estado.lastTick)));
+  const estagio = estagioAtual(estado);
+  return {
+    ouroHora: Math.round(OURO_BASE_HORA * (1 + estado.atributos.fortuna * 0.02) * mult * estagio.multOuro * bonus.ouroMult),
+    xpHora: Math.round(XP_BASE_HORA * (1 + estado.atributos.mente * 0.02) * mult * estagio.multXp * bonus.xpMult),
   };
 }
 
@@ -166,7 +183,8 @@ export function aplicarCheckin(
 
   const xpGanho = Math.round(missao.xp * (critico ? 1.5 : 1));
   const atributos: Atributos = { ...estado.atributos, [missao.dominio]: estado.atributos[missao.dominio] + 1 };
-  const energiaGanha = Math.min(missao.energia, energiaMaxima(atributos) - estado.energia);
+  const capEnergia = energiaMaxima(atributos, bonusDeUpgrades(estado.sistemas).energiaMaxBonus);
+  const energiaGanha = Math.min(missao.energia, capEnergia - estado.energia);
   const { level, xp, levels } = aplicarXp(estado.level, estado.xp, xpGanho);
 
   return {

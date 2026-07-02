@@ -10,9 +10,17 @@ import {
   diaLocal,
   energiaMaxima,
   xpParaProximoLevel,
+  taxaProducao,
   type EstadoPersonagem,
   type Dominio,
 } from "./engine";
+import {
+  UPGRADES,
+  bonusDeUpgrades,
+  nivelUpgrade,
+  custoProximoNivel,
+  type UpgradeId,
+} from "./upgrades";
 import { estagioAtual } from "./estagios";
 import { eventosDisparados, type EventoDef, type OpcaoEvento } from "./eventos";
 import { aplicarEfeitos } from "./efeitos";
@@ -76,6 +84,21 @@ export interface VisaoJogo {
   estagio: { ordem: number; nome: string; sub: string };
   frase: string;
   eventos: EventoDef[];
+  taxa: { ouroHora: number; xpHora: number };
+  upgrades: Array<{
+    id: UpgradeId; nome: string; descricao: string; icone: string;
+    nivel: number; nivelMax: number; custo: number;
+  }>;
+}
+
+function montarUpgrades(estado: EstadoPersonagem): VisaoJogo["upgrades"] {
+  return UPGRADES.map((u) => {
+    const nivel = nivelUpgrade(estado.sistemas, u.id);
+    return {
+      id: u.id, nome: u.nome, descricao: u.descricao, icone: u.icone,
+      nivel, nivelMax: u.nivelMax, custo: custoProximoNivel(u, nivel),
+    };
+  });
 }
 
 function paraEstado(r: PersonagemRow): EstadoPersonagem {
@@ -191,9 +214,11 @@ export async function carregarJogo(db: SupabaseClient, userId: string, agora = n
     xpProximo: xpParaProximoLevel(e.level),
     ouro: e.ouro,
     energia: Math.round(e.energia),
-    energiaMax: energiaMaxima(e.atributos),
+    energiaMax: energiaMaxima(e.atributos, bonusDeUpgrades(e.sistemas).energiaMaxBonus),
     momentum: e.momentum,
     atributos: e.atributos,
+    taxa: taxaProducao(e),
+    upgrades: montarUpgrades(e),
     ganhosOffline: ganhos,
     missoes: ((missoes ?? []) as MissaoRow[]).map((m) => ({
       ...m,
@@ -238,6 +263,26 @@ export async function arquivarTarefa(db: SupabaseClient, userId: string, tarefaI
   if (error) throw new Error(`arquivar tarefa: ${error.message}`);
 }
 
+/** Edita uma tarefa do usuário (recompensa recalculada pela dificuldade). */
+export async function editarTarefa(
+  db: SupabaseClient,
+  userId: string,
+  tarefaId: string,
+  nova: NovaTarefa,
+): Promise<TarefaRow> {
+  const { xp, energia } = recompensaDe(nova.dificuldade);
+  const { data, error } = await db
+    .from("tarefa")
+    .update({
+      titulo: nova.titulo, descricao: nova.descricao, dominio: nova.dominio,
+      tipo: nova.tipo, dificuldade: nova.dificuldade, xp, energia,
+    })
+    .eq("user_id", userId).eq("id", tarefaId)
+    .select("*").single();
+  if (error) throw new Error(`editar tarefa: ${error.message}`);
+  return data as TarefaRow;
+}
+
 export interface RespostaCheckin {
   xpGanho: number;
   energiaGanha: number;
@@ -249,6 +294,57 @@ export interface RespostaCheckin {
   xpProximo: number;
   energia: number;
   ouro: number;
+}
+
+export interface RespostaUpgrade {
+  id: string;
+  nivel: number;
+  custoProximo: number;
+  ouro: number;
+  energiaMax: number;
+  taxa: { ouroHora: number; xpHora: number };
+}
+
+/** Compra 1 nível de um upgrade: tick, valida ouro, debita, incrementa nível. */
+export async function comprarUpgrade(
+  db: SupabaseClient,
+  userId: string,
+  upgradeId: UpgradeId,
+  agora = new Date(),
+): Promise<RespostaUpgrade> {
+  const row = await obterPersonagem(db, userId);
+  if (!row) throw new Error("personagem não encontrado");
+  const def = UPGRADES.find((u) => u.id === upgradeId);
+  if (!def) throw new Error("upgrade inválido");
+
+  const estado = tick(paraEstado(row), agora).estado;
+  const nivelAtual = nivelUpgrade(estado.sistemas, upgradeId);
+  if (nivelAtual >= def.nivelMax) throw new Error("upgrade no nível máximo");
+  const custo = custoProximoNivel(def, nivelAtual);
+  if (estado.ouro < custo) throw new Error("ouro insuficiente");
+
+  const upgradesAntigos = (estado.sistemas.upgrades as Record<string, number> | undefined) ?? {};
+  const novoEstado: EstadoPersonagem = {
+    ...estado,
+    ouro: estado.ouro - custo,
+    sistemas: { ...estado.sistemas, upgrades: { ...upgradesAntigos, [upgradeId]: nivelAtual + 1 } },
+  };
+
+  const { error } = await db.from("personagem").update(paraUpdate(novoEstado)).eq("user_id", userId);
+  if (error) throw new Error(`comprar upgrade: ${error.message}`);
+
+  await db.from("evento_log").insert({
+    user_id: userId, tipo: "upgrade", payload: { upgrade: def.nome, nivel: nivelAtual + 1, custo },
+  });
+
+  return {
+    id: upgradeId,
+    nivel: nivelAtual + 1,
+    custoProximo: custoProximoNivel(def, nivelAtual + 1),
+    ouro: novoEstado.ouro,
+    energiaMax: energiaMaxima(novoEstado.atributos, bonusDeUpgrades(novoEstado.sistemas).energiaMaxBonus),
+    taxa: taxaProducao(novoEstado),
+  };
 }
 
 /** Núcleo do check-in: tick + recompensa + persistência + log, para qualquer fonte. */

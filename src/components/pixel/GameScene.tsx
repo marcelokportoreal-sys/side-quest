@@ -97,13 +97,23 @@ const ESTAGIOS: readonly Estagio[] = [
 
 export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgsRef = useRef<HTMLImageElement[]>([]);
   const st = useRef({
     worldX: 0, energia, level, momentum,
     frameAndar: 0, tAndar: 0, frameFogo: 0, tFogo: 0,
     pulsoVisto: pulso, pulo: 0, flashLevel: 0, levelVisto: level,
     moedas: [] as Moeda[], particulas: [] as Particula[],
-    proximaMoeda: 80,
+    proximaMoeda: 80, fasePasso: 0,
   });
+
+  // Sprites reais (fatiados da referência do Marcelo). Fallback: sprites de código.
+  useEffect(() => {
+    imgsRef.current = TIERS.map((_, i) => {
+      const img = new Image();
+      img.src = `/sprites/tier${i}.png`;
+      return img;
+    });
+  }, []);
 
   useEffect(() => {
     const s = st.current;
@@ -359,13 +369,42 @@ export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
         return mx > -24;
       });
 
-      // ---- HERÓI (escala 2 — presença de protagonista) ----
+      // ---- HERÓI — sprite REAL da referência (fallback: sprite de código) ----
       const alturaPulo = Math.floor(Math.sin(s.pulo * Math.PI) * 14);
+      const img = imgsRef.current[tier];
+      const imgPronta = !!img && img.complete && img.naturalWidth > 0;
+      const ALTURA_HEROI = 74;
+
       if (andando || s.pulo > 0) {
-        c.fillStyle = "rgba(0,0,0,0.4)";
-        c.fillRect(HEROI_X + 8, CHAO - 1, 26, 3);
-        desenharHeroiAndando(c, tier, s.frameAndar, HEROI_X, CHAO - 60 - alturaPulo, 2);
+        if (imgPronta) {
+          const escalaImg = ALTURA_HEROI / img.naturalHeight;
+          const largura = img.naturalWidth * escalaImg;
+          // Bob de passo (sobe/desce) + leve balanço horizontal — vida sem frames.
+          const fase = agora / 130;
+          const bobY = -Math.abs(Math.sin(fase)) * 2.5;
+          const swayX = Math.sin(fase / 2) * 1;
+          // Poeira a cada passo (quando o pé "toca" o chão).
+          const faseInt = Math.floor(fase / Math.PI);
+          if (faseInt !== s.fasePasso) {
+            s.fasePasso = faseInt;
+            for (let i = 0; i < 3; i++) {
+              s.particulas.push({
+                x: HEROI_X + 10 + hash(agora + i) * 8, y: CHAO - 2,
+                vx: -12 - hash(agora * 3 + i) * 10, vy: -6 - hash(agora * 7 + i) * 8,
+                vida: 0.45, cor: "#4a4050",
+              });
+            }
+          }
+          c.fillStyle = "rgba(0,0,0,0.4)";
+          c.fillRect(Math.floor(HEROI_X + 10 - largura * 0.35), CHAO - 1, Math.floor(largura * 0.7), 3);
+          c.drawImage(img, Math.floor(HEROI_X + 10 - largura / 2 + swayX), Math.floor(CHAO - ALTURA_HEROI + bobY - alturaPulo), Math.floor(largura), ALTURA_HEROI);
+        } else {
+          c.fillStyle = "rgba(0,0,0,0.4)";
+          c.fillRect(HEROI_X + 8, CHAO - 1, 26, 3);
+          desenharHeroiAndando(c, tier, s.frameAndar, HEROI_X, CHAO - 60 - alturaPulo, 2);
+        }
       } else {
+        // Descanso: herói em pé diante da fogueira (o sprite olha para a direita — para o fogo).
         desenharSprite(c, FOGUEIRA[s.frameFogo]!, PALETA_FOGUEIRA, HEROI_X + 52, CHAO - 24, 2);
         if (hash(Math.floor(agora / 280)) > 0.45) {
           s.particulas.push({
@@ -377,9 +416,18 @@ export function GameScene({ level, energia, momentum, pulso, nome }: Props) {
         const fogoLuz = 0.5 + 0.5 * Math.sin(agora / 150);
         c.fillStyle = `rgba(232,150,60,${0.05 + 0.03 * fogoLuz})`;
         c.fillRect(HEROI_X + 10, CHAO - 54, 80, 50);
-        c.fillStyle = "rgba(0,0,0,0.4)";
-        c.fillRect(HEROI_X + 6, CHAO - 1, 30, 3);
-        desenharHeroiSentado(c, tier, HEROI_X, CHAO - 40, 2);
+        if (imgPronta) {
+          const escalaImg = ALTURA_HEROI / img.naturalHeight;
+          const largura = img.naturalWidth * escalaImg;
+          const respira = Math.sin(agora / 700) * 0.8;
+          c.fillStyle = "rgba(0,0,0,0.4)";
+          c.fillRect(Math.floor(HEROI_X + 10 - largura * 0.35), CHAO - 1, Math.floor(largura * 0.7), 3);
+          c.drawImage(img, Math.floor(HEROI_X + 10 - largura / 2), Math.floor(CHAO - ALTURA_HEROI + respira), Math.floor(largura), ALTURA_HEROI);
+        } else {
+          c.fillStyle = "rgba(0,0,0,0.4)";
+          c.fillRect(HEROI_X + 6, CHAO - 1, 30, 3);
+          desenharHeroiSentado(c, tier, HEROI_X, CHAO - 40, 2);
+        }
       }
 
       // ---- PARTÍCULAS ----

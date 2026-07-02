@@ -32,6 +32,22 @@ body {
 
 .sq-wrap { max-width: 680px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 
+/* Cena pixel art — pixels nítidos, moldura gótica */
+.sq-scene {
+  border: 1px solid var(--sq-line-strong);
+  border-radius: var(--sq-radius);
+  overflow: hidden;
+  margin-bottom: 1rem;
+  background: #0c0a12;
+  line-height: 0;
+}
+.sq-scene canvas {
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
 .sq-panel {
   background: var(--sq-panel);
   border: 1px solid var(--sq-line);

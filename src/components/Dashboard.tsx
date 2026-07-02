@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { type VisaoJogo, type RespostaCheckin } from "@/domain/game.service";
+import { GameScene } from "@/components/pixel/GameScene";
 
 const DOMINIO_ICONE: Record<string, string> = {
   fortuna: "🪙", mente: "📘", carreira: "💼", vigor: "🌙",
@@ -44,6 +45,7 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
   const [flutuantes, setFlutuantes] = useState<Flutuante[]>([]);
   const [bump, setBump] = useState<"ouro" | "energia" | "momentum" | null>(null);
   const [levelUp, setLevelUp] = useState(false);
+  const [pulso, setPulso] = useState(0);
   const proxId = useRef(1);
 
   const ouro = useContador(jogo.ouro);
@@ -69,6 +71,7 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
       return;
     }
     const r = (await res.json()) as RespostaCheckin;
+    setPulso((p) => p + 1);
     flutuar(`+${r.xpGanho} XP${r.critico ? " ✦crítico" : ""}`, r.critico);
     if (r.energiaGanha > 0) setTimeout(() => flutuar(`+${r.energiaGanha}⚡`), 250);
     setBump("energia");
@@ -95,6 +98,8 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
 
   return (
     <main className="sq-wrap" style={{ position: "relative" }}>
+      <GameScene level={jogo.level} energia={jogo.energia} momentum={jogo.momentum} pulso={pulso} nome={jogo.nome} />
+
       <AnimatePresence>
         {jogo.ganhosOffline && (
           <motion.div className="sq-toast" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>

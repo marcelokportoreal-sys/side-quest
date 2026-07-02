@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.marcelokportoreal.sidequest",
   "build": {
-    "frontendDist": "http://localhost:3000",
+    "frontendDist": "https://side-quest-shun13.vercel.app",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": ""
   },
   "app": {
     "windows": [

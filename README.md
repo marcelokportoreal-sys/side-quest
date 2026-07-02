@@ -15,7 +15,7 @@ Next.js 16 + React 19 + TS estrito · Supabase (auth + Postgres + RLS) · framer
 engine idle **puro** em `src/domain/engine.ts` (determinístico, testado; tick por Δt
 na leitura — sem cron).
 
-## Rodar
+## Para Rodar
 ```bash
 npm install
 cp .env.local.example .env.local   # preencher URL + anon key do Supabase

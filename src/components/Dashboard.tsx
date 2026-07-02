@@ -7,7 +7,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { type VisaoJogo, type RespostaCheckin } from "@/domain/game.service";
+import { type VisaoJogo, type RespostaCheckin, type RespostaEvento } from "@/domain/game.service";
+import { type EventoDef, type OpcaoEvento } from "@/domain/eventos";
 import { GameScene } from "@/components/pixel/GameScene";
 
 const DOMINIO_ICONE: Record<string, string> = {
@@ -92,6 +93,36 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
     }));
   }
 
+  async function resolver(evento: EventoDef, opcao: OpcaoEvento) {
+    setOcupada(evento.id);
+    setErro(null);
+    const res = await fetch("/api/evento", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventoId: evento.id, opcaoId: opcao.id }),
+    });
+    setOcupada(null);
+    if (!res.ok) {
+      const corpo = (await res.json().catch(() => null)) as { erro?: string } | null;
+      setErro(corpo?.erro ?? "erro ao resolver evento");
+      return;
+    }
+    const r = (await res.json()) as RespostaEvento;
+    setPulso((p) => p + 1);
+    setJogo((j) => ({
+      ...j,
+      level: r.level,
+      xp: r.xp,
+      xpProximo: r.xpProximo,
+      energia: r.energia,
+      ouro: r.ouro,
+      momentum: r.momentum,
+      atributos: r.atributos,
+      eventos: j.eventos.filter((e) => e.id !== evento.id),
+    }));
+  }
+
+  const eventoAtual = jogo.eventos[0];
   const pendentes = jogo.missoes.filter((m) => !m.concluida);
   const feitas = jogo.missoes.filter((m) => m.concluida);
   const pctXp = Math.min(100, Math.round((jogo.xp / jogo.xpProximo) * 100));
@@ -100,13 +131,27 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
     <main className="sq-wrap" style={{ position: "relative" }}>
       <GameScene level={jogo.level} energia={jogo.energia} momentum={jogo.momentum} pulso={pulso} nome={jogo.nome} />
 
+      <motion.div className="sq-toast" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+        🏕️ {jogo.frase}
+      </motion.div>
+
       <AnimatePresence>
-        {jogo.ganhosOffline && (
-          <motion.div className="sq-toast" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            🏕️ <strong>Enquanto você estava fora</strong> ({jogo.ganhosOffline.horas}h de grind):{" "}
-            <span style={{ color: "var(--sq-gold)" }}>+{jogo.ganhosOffline.ouro} ouro</span>,{" "}
-            +{jogo.ganhosOffline.xp} XP
-            {jogo.ganhosOffline.levels > 0 && <> — e o herói subiu de level! 🎉</>}
+        {eventoAtual && (
+          <motion.div className="sq-panel" style={{ borderColor: "var(--sq-gold)" }}
+            initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+            <p className="sq-sub" style={{ margin: "0 0 .2rem", color: "var(--sq-gold)" }}>
+              ✨ Um momento de escolha — {jogo.estagio.nome}
+            </p>
+            <h2 className="sq-h1" style={{ fontSize: "1.1rem" }}>{eventoAtual.titulo}</h2>
+            <p style={{ margin: ".4rem 0 .8rem" }}>{eventoAtual.texto}</p>
+            <div style={{ display: "flex", gap: ".6rem", flexWrap: "wrap" }}>
+              {eventoAtual.opcoes.map((o) => (
+                <button key={o.id} className="sq-btn" disabled={ocupada === eventoAtual.id}
+                  onClick={() => resolver(eventoAtual, o)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -122,7 +167,8 @@ export function Dashboard({ inicial }: { inicial: VisaoJogo }) {
           <div style={{ flex: 1 }}>
             <h1 className="sq-h1">
               {jogo.nome}{" "}
-              <span style={{ color: "var(--sq-gold)", fontSize: ".95rem" }}>lv {jogo.level}</span>
+              <span style={{ color: "var(--sq-gold)", fontSize: ".95rem" }}>lv {jogo.level}</span>{" "}
+              <span style={{ color: "var(--sq-muted, #9a90b0)", fontSize: ".8rem" }}>· {jogo.estagio.nome}</span>
             </h1>
             <div className="sq-bar" style={{ marginTop: ".45rem" }} title={`${jogo.xp}/${jogo.xpProximo} XP`}>
               <span style={{ width: `${pctXp}%` }} />

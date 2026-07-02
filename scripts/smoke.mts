@@ -7,7 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
-import { carregarJogo, criarPersonagem, fazerCheckin } from "../src/domain/game.service";
+import { carregarJogo, criarPersonagem, fazerCheckin, resolverEvento } from "../src/domain/game.service";
 
 function envLocal(nome: string): string {
   const conteudo = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
@@ -63,5 +63,21 @@ console.log("6. visão pós-checkin…");
 const jogo2 = await carregarJogo(db, su.user.id);
 ok(jogo2!.missoes.find((m) => m.id === "funil-outlier")!.concluida, "missão marcada concluída");
 ok(jogo2!.level === 2, `level 2 — veio ${jogo2!.level}`);
+ok(jogo2!.estagio.nome === "Maltrapilho", `estágio inicial Maltrapilho — veio ${jogo2!.estagio.nome}`);
+ok(typeof jogo2!.frase === "string" && jogo2!.frase.length > 0, "frase narrativa gerada");
 
-console.log("\nSMOKE OK — auth, RLS, seed, engine e persistência funcionando no banco real.");
+console.log("7. resolver evento de escolha (primeiro-emprego → aceitar)…");
+const ouroAntes = jogo2!.ouro;
+const re = await resolverEvento(db, su.user.id, "primeiro-emprego", "aceitar");
+ok(re.ouro === ouroAntes + 300, `efeito de ouro aplicado (+300) — ${ouroAntes} → ${re.ouro}`);
+
+console.log("8. evento único não pode ser resolvido duas vezes…");
+let bloqueouEvento = false;
+try {
+  await resolverEvento(db, su.user.id, "primeiro-emprego", "aceitar");
+} catch {
+  bloqueouEvento = true;
+}
+ok(bloqueouEvento, "evento já resolvido rejeitado");
+
+console.log("\nSMOKE OK — auth, RLS, seed, engine, estágios, eventos e persistência funcionando no banco real.");

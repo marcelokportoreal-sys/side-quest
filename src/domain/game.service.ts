@@ -13,6 +13,10 @@ import {
   type EstadoPersonagem,
   type Dominio,
 } from "./engine";
+import { estagioAtual } from "./estagios";
+import { eventosDisparados, type EventoDef, type OpcaoEvento } from "./eventos";
+import { aplicarEfeitos } from "./efeitos";
+import { fraseDoDia } from "./narrativa";
 
 export interface PersonagemRow {
   user_id: string;
@@ -28,6 +32,7 @@ export interface PersonagemRow {
   vigor: number;
   last_tick: string;
   ultimo_checkin_dia: string | null;
+  sistemas: Record<string, unknown> | null;
 }
 
 export interface MissaoRow {
@@ -54,6 +59,9 @@ export interface VisaoJogo {
   atributos: { fortuna: number; mente: number; carreira: number; vigor: number };
   ganhosOffline: { ouro: number; xp: number; levels: number; horas: number } | null;
   missoes: Array<MissaoRow & { concluida: boolean }>;
+  estagio: { ordem: number; nome: string; sub: string };
+  frase: string;
+  eventos: EventoDef[];
 }
 
 function paraEstado(r: PersonagemRow): EstadoPersonagem {
@@ -66,6 +74,7 @@ function paraEstado(r: PersonagemRow): EstadoPersonagem {
     atributos: { fortuna: r.fortuna, mente: r.mente, carreira: r.carreira, vigor: r.vigor },
     lastTick: new Date(r.last_tick),
     ultimoCheckinDia: r.ultimo_checkin_dia,
+    sistemas: r.sistemas ?? {},
   };
 }
 
@@ -82,8 +91,23 @@ function paraUpdate(e: EstadoPersonagem) {
     vigor: e.atributos.vigor,
     last_tick: e.lastTick.toISOString(),
     ultimo_checkin_dia: e.ultimoCheckinDia,
+    sistemas: e.sistemas,
     updated_at: new Date().toISOString(),
   };
+}
+
+/** Carrega as defs de eventos ativas (conteúdo global). */
+export async function obterEventosDef(db: SupabaseClient): Promise<EventoDef[]> {
+  const { data, error } = await db.from("evento_def").select("*").eq("ativo", true);
+  if (error) throw new Error(`evento_def: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    gatilho: r.gatilho,
+    titulo: r.titulo as string,
+    texto: r.texto as string,
+    opcoes: r.opcoes,
+    unico: r.unico as boolean,
+  }));
 }
 
 export async function obterPersonagem(db: SupabaseClient, userId: string): Promise<PersonagemRow | null> {
@@ -123,9 +147,23 @@ export async function carregarJogo(db: SupabaseClient, userId: string, agora = n
   );
   const feitasSempre = new Set((checks ?? []).map((c) => c.missao_id as string));
 
+  const eventosDef = await obterEventosDef(db);
+  const { data: resolvidos, error: er } = await db
+    .from("evento_resolvido").select("evento_id").eq("user_id", userId);
+  if (er) throw new Error(`eventos resolvidos: ${er.message}`);
+  const idsResolvidos = new Set((resolvidos ?? []).map((x) => x.evento_id as string));
+  const eventos = eventosDisparados(r.estado, eventosDef, idsResolvidos);
+
   const e = r.estado;
+  const est = estagioAtual(e);
+  const ganhos = houveGanho
+    ? { ouro: r.ouroGanho, xp: r.xpGanho, levels: r.levelsGanhos, horas: Math.round(r.horasProdutivas * 10) / 10 }
+    : null;
   return {
     nome: row.nome,
+    estagio: { ordem: est.ordem, nome: est.nome, sub: est.sub },
+    frase: fraseDoDia(e, row.nome, ganhos),
+    eventos,
     level: e.level,
     xp: e.xp,
     xpProximo: xpParaProximoLevel(e.level),
@@ -134,9 +172,7 @@ export async function carregarJogo(db: SupabaseClient, userId: string, agora = n
     energiaMax: energiaMaxima(e.atributos),
     momentum: e.momentum,
     atributos: e.atributos,
-    ganhosOffline: houveGanho
-      ? { ouro: r.ouroGanho, xp: r.xpGanho, levels: r.levelsGanhos, horas: Math.round(r.horasProdutivas * 10) / 10 }
-      : null,
+    ganhosOffline: ganhos,
     missoes: ((missoes ?? []) as MissaoRow[]).map((m) => ({
       ...m,
       concluida: m.tipo === "diaria" ? feitasHoje.has(m.id) : feitasSempre.has(m.id),
@@ -210,5 +246,64 @@ export async function fazerCheckin(
     xpProximo: xpParaProximoLevel(r.estado.level),
     energia: Math.round(r.estado.energia),
     ouro: r.estado.ouro,
+  };
+}
+
+export interface RespostaEvento {
+  eventoId: string;
+  opcaoId: string;
+  level: number;
+  xp: number;
+  xpProximo: number;
+  energia: number;
+  ouro: number;
+  momentum: number;
+  atributos: { fortuna: number; mente: number; carreira: number; vigor: number };
+}
+
+/** Resolve um evento de escolha: valida a opção, aplica seus efeitos e persiste. */
+export async function resolverEvento(
+  db: SupabaseClient,
+  userId: string,
+  eventoId: string,
+  opcaoId: string,
+  agora = new Date(),
+): Promise<RespostaEvento> {
+  const row = await obterPersonagem(db, userId);
+  if (!row) throw new Error("personagem não encontrado");
+
+  const { data: ev, error: ee } = await db.from("evento_def").select("*").eq("id", eventoId).maybeSingle();
+  if (ee || !ev) throw new Error("evento não encontrado");
+  const evento = ev as EventoDef;
+  const opcao = (evento.opcoes as OpcaoEvento[]).find((o) => o.id === opcaoId);
+  if (!opcao) throw new Error("opção inválida");
+
+  // Marca como resolvido primeiro (unique (user_id, evento_id) barra duplicata).
+  const { error: er } = await db.from("evento_resolvido").insert({
+    user_id: userId, evento_id: eventoId, opcao_id: opcaoId,
+  });
+  if (er) throw new Error(er.code === "23505" ? "evento já resolvido" : `evento: ${er.message}`);
+
+  const aposTick = tick(paraEstado(row), agora).estado;
+  const estado = aplicarEfeitos(aposTick, opcao.efeitos);
+
+  const { error: eu } = await db.from("personagem").update(paraUpdate(estado)).eq("user_id", userId);
+  if (eu) throw new Error(`salvar evento: ${eu.message}`);
+
+  await db.from("evento_log").insert({
+    user_id: userId, tipo: "evento",
+    payload: { evento: evento.titulo, opcao: opcao.label },
+  });
+
+  return {
+    eventoId,
+    opcaoId,
+    level: estado.level,
+    xp: estado.xp,
+    xpProximo: xpParaProximoLevel(estado.level),
+    energia: Math.round(estado.energia),
+    ouro: estado.ouro,
+    momentum: estado.momentum,
+    atributos: estado.atributos,
   };
 }

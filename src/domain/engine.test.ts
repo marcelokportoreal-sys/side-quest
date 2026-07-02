@@ -23,6 +23,7 @@ function estadoBase(over: Partial<EstadoPersonagem> = {}): EstadoPersonagem {
     atributos: { fortuna: 0, mente: 0, carreira: 0, vigor: 0 },
     lastTick: new Date("2026-07-02T12:00:00Z"),
     ultimoCheckinDia: null,
+    sistemas: {},
     ...over,
   };
 }

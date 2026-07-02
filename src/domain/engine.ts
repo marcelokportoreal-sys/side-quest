@@ -9,6 +9,8 @@
  *  - Produção offline: calculada por delta de tempo na leitura; sem cron.
  */
 
+import { estagioAtual } from "./estagios";
+
 export const ENERGIA_POR_HORA = 10; // 1 ponto de energia ≈ 6min de grind
 export const OURO_BASE_HORA = 60;
 export const XP_BASE_HORA = 30;
@@ -31,6 +33,12 @@ export interface EstadoPersonagem {
   readonly lastTick: Date;
   /** Dia local (YYYY-MM-DD) do último check-in; null = nunca. */
   readonly ultimoCheckinDia: string | null;
+  /**
+   * Sub-estados de vida plugáveis (empregoAtual, patrimonio, flags de escolha…).
+   * Semente do padrão data-driven: efeitos de eventos leem/escrevem aqui sem
+   * exigir coluna nova por feature.
+   */
+  readonly sistemas: Readonly<Record<string, unknown>>;
 }
 
 export interface ResultadoTick {
@@ -100,8 +108,9 @@ export function tick(estado: EstadoPersonagem, agora: Date): ResultadoTick {
   const horasProdutivas = Math.min(deltaHoras, horasComEnergia);
 
   const mult = multiplicadorMomentum(momentumAtual);
-  const ouroGanho = Math.floor(horasProdutivas * OURO_BASE_HORA * (1 + estado.atributos.fortuna * 0.02) * mult);
-  const xpGanho = Math.floor(horasProdutivas * XP_BASE_HORA * (1 + estado.atributos.mente * 0.02) * mult);
+  const estagio = estagioAtual(estado);
+  const ouroGanho = Math.floor(horasProdutivas * OURO_BASE_HORA * (1 + estado.atributos.fortuna * 0.02) * mult * estagio.multOuro);
+  const xpGanho = Math.floor(horasProdutivas * XP_BASE_HORA * (1 + estado.atributos.mente * 0.02) * mult * estagio.multXp);
   const energiaRestante = Math.max(0, estado.energia - horasProdutivas * ENERGIA_POR_HORA);
 
   const { level, xp, levels } = aplicarXp(estado.level, estado.xp, xpGanho);

@@ -31,12 +31,24 @@ Import do repo GitHub → framework Next.js (auto) → env vars:
 
 ## Estrutura
 ```
-src/domain/    engine.ts (puro) + game.service.ts (orquestra + Supabase)
-src/app/       páginas (login, jogo) + /api/checkin + /api/personagem
-src/components Dashboard (animações de recompensa) + Onboarding
-supabase/      migrations versionadas (0001_init: schema + RLS + seed Temporada 1)
+src/domain/    engine.ts (puro, tick) · estagios.ts · eventos.ts · efeitos.ts ·
+               narrativa.ts · game.service.ts (orquestra + Supabase)
+src/app/       jogo (/) + /widget (casca enxuta) + /api/checkin · /api/evento · /api/personagem
+src/components Dashboard + Widget + Onboarding + pixel/GameScene
+supabase/      0001_init (schema + seed T1) · 0002_vida (estágios, eventos, sub-estado)
+docs/          widget-tauri.md (casca desktop always-on-top)
 ```
 
+## A vida molda o destino (F2)
+A todo list não dá "XP" — ela **muda os sistemas da vida**. Os atributos viram stats
+que, ao cruzarem limiares, disparam **estágios de vida** (saltos discretos de produção:
+Maltrapilho → … → Dono do Mundo) e **eventos de escolha** (aceitar um emprego, investir
+vs. guardar) que alteram as regras dali em diante. O hook diário é uma **frase narrativa**
+do estado, não um painel de números. Tudo permanece puro e determinístico (sem cron;
+estágios/eventos são dados + interpretador de efeitos).
+
 ## Roadmap
-F1 ✅ núcleo jogável · F2 loja/equipamento, zonas 2–4, caravanas, feed offline ·
-F3 boss fights, mapa da temporada, PWA.
+F1 ✅ núcleo jogável · **F2 ✅ vida: estágios + eventos de escolha + frase narrativa +
+rota /widget** · Frente B: casca desktop Tauri (`docs/widget-tauri.md`) · F3 combos de
+hábitos (Balatro), empresa/investimentos, mundo vivo (mercado como função pura de
+tempo+seed) — só se o loop de vida provar retenção.

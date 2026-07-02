@@ -1,0 +1,126 @@
+/* Side Quest — tema escuro neutro, acento dourado suave. Animado sem estridência. */
+:root {
+  --sq-bg: #0e1013;
+  --sq-panel: #15181e;
+  --sq-elev: #1c2027;
+  --sq-elev-hov: #232832;
+  --sq-line: #262c35;
+  --sq-line-strong: #39414d;
+  --sq-ink: #e9ebee;
+  --sq-ink2: #a3adb8;
+  --sq-gold: #d4a94f;
+  --sq-gold-soft: rgba(212, 169, 79, .14);
+  --sq-energy: #5fb7d4;
+  --sq-fire: #e08c5a;
+  --sq-ok: #6fcf8f;
+  --sq-epic: #a98fd6;
+  --sq-danger: #e07a7a;
+  --sq-radius: 12px;
+  --sq-t: 160ms ease;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--sq-bg);
+  color: var(--sq-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--sq-gold); outline-offset: 2px; border-radius: 4px; }
+
+.sq-wrap { max-width: 680px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+
+.sq-panel {
+  background: var(--sq-panel);
+  border: 1px solid var(--sq-line);
+  border-radius: var(--sq-radius);
+  padding: 1.1rem 1.2rem;
+  transition: border-color var(--sq-t);
+}
+.sq-panel + .sq-panel { margin-top: 1rem; }
+
+.sq-h1 { font-size: 1.35rem; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+.sq-sub { color: var(--sq-ink2); font-size: .85rem; margin: .15rem 0 0; }
+
+/* Barra de XP */
+.sq-bar { height: 10px; background: var(--sq-elev); border-radius: 999px; overflow: hidden; border: 1px solid var(--sq-line); }
+.sq-bar > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--sq-gold), #e6c37a);
+  border-radius: 999px;
+  transition: width 600ms cubic-bezier(.22,1,.36,1);
+}
+
+/* Recursos */
+.sq-res { display: flex; gap: .9rem; flex-wrap: wrap; margin-top: .8rem; }
+.sq-res .chip {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: var(--sq-elev); border: 1px solid var(--sq-line);
+  border-radius: 999px; padding: .3rem .75rem; font-size: .9rem;
+  transition: border-color var(--sq-t), transform var(--sq-t);
+}
+.sq-res .chip.bump { animation: sq-bump 400ms ease; }
+@keyframes sq-bump { 30% { transform: scale(1.12); border-color: var(--sq-gold); } }
+
+/* Missões */
+.sq-missao {
+  display: flex; align-items: center; gap: .8rem;
+  padding: .75rem .5rem; border-bottom: 1px solid var(--sq-line);
+  transition: background var(--sq-t);
+}
+.sq-missao:last-child { border-bottom: none; }
+.sq-missao:hover { background: var(--sq-elev); border-radius: 8px; }
+.sq-missao .info { flex: 1; min-width: 0; }
+.sq-missao .titulo { font-weight: 550; }
+.sq-missao .desc { color: var(--sq-ink2); font-size: .8rem; margin-top: .1rem; }
+.sq-missao .premio { color: var(--sq-ink2); font-size: .78rem; white-space: nowrap; }
+.sq-missao.feita { opacity: .45; }
+.sq-missao.feita .titulo { text-decoration: line-through; }
+
+.sq-btn {
+  background: var(--sq-gold); color: #1a1408;
+  border: none; border-radius: 9px; padding: .5rem .9rem;
+  font: inherit; font-size: .85rem; font-weight: 650; cursor: pointer;
+  transition: filter var(--sq-t), transform var(--sq-t), box-shadow var(--sq-t);
+}
+.sq-btn:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 4px 16px var(--sq-gold-soft); }
+.sq-btn:active:not(:disabled) { transform: scale(.96); }
+.sq-btn:disabled { opacity: .45; cursor: default; }
+.sq-btn.ghost { background: transparent; color: var(--sq-ink2); border: 1px solid var(--sq-line); }
+.sq-btn.ghost:hover:not(:disabled) { color: var(--sq-ink); border-color: var(--sq-line-strong); box-shadow: none; }
+
+.sq-input {
+  background: var(--sq-elev); border: 1px solid var(--sq-line); border-radius: 9px;
+  color: var(--sq-ink); padding: .6rem .8rem; font: inherit; outline: none; width: 100%;
+  transition: border-color var(--sq-t), box-shadow var(--sq-t);
+}
+.sq-input:focus { border-color: var(--sq-gold); box-shadow: 0 0 0 3px var(--sq-gold-soft); }
+
+/* Número flutuante de recompensa */
+.sq-float {
+  position: absolute; pointer-events: none; font-weight: 700; font-size: .95rem;
+  color: var(--sq-gold); animation: sq-float 1100ms ease-out forwards;
+}
+.sq-float.epic { color: var(--sq-epic); }
+@keyframes sq-float {
+  0% { opacity: 0; transform: translateY(4px) scale(.9); }
+  15% { opacity: 1; transform: translateY(-2px) scale(1.05); }
+  100% { opacity: 0; transform: translateY(-34px) scale(1); }
+}
+
+/* Toast "enquanto você estava fora" */
+.sq-toast {
+  border: 1px solid var(--sq-line-strong); background: var(--sq-elev);
+  border-radius: var(--sq-radius); padding: .8rem 1rem; margin-bottom: 1rem;
+  animation: sq-slide 500ms cubic-bezier(.22,1,.36,1);
+}
+@keyframes sq-slide { from { opacity: 0; transform: translateY(-10px); } }
+
+.sq-msg-err { color: var(--sq-danger); font-size: .85rem; }
+.sq-domtag { font-size: .7rem; padding: .05rem .45rem; border-radius: 6px; border: 1px solid var(--sq-line-strong); color: var(--sq-ink2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

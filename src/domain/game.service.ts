@@ -17,6 +17,7 @@ import { estagioAtual } from "./estagios";
 import { eventosDisparados, type EventoDef, type OpcaoEvento } from "./eventos";
 import { aplicarEfeitos } from "./efeitos";
 import { fraseDoDia } from "./narrativa";
+import { recompensaDe, type NovaTarefa } from "./tarefa";
 
 export interface PersonagemRow {
   user_id: string;
@@ -47,6 +48,18 @@ export interface MissaoRow {
   ordem: number;
 }
 
+export interface TarefaRow {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  dominio: Dominio;
+  tipo: "unica" | "diaria";
+  dificuldade: string;
+  xp: number;
+  energia: number;
+  ordem: number;
+}
+
 export interface VisaoJogo {
   nome: string;
   level: number;
@@ -59,6 +72,7 @@ export interface VisaoJogo {
   atributos: { fortuna: number; mente: number; carreira: number; vigor: number };
   ganhosOffline: { ouro: number; xp: number; levels: number; horas: number } | null;
   missoes: Array<MissaoRow & { concluida: boolean }>;
+  tarefas: Array<TarefaRow & { concluida: boolean }>;
   estagio: { ordem: number; nome: string; sub: string };
   frase: string;
   eventos: EventoDef[];
@@ -137,15 +151,23 @@ export async function carregarJogo(db: SupabaseClient, userId: string, agora = n
     .from("missao").select("*").eq("ativa", true).order("ordem");
   if (em) throw new Error(`missões: ${em.message}`);
 
+  const { data: tarefasRows, error: et } = await db
+    .from("tarefa").select("*").eq("user_id", userId).eq("arquivada", false).order("ordem").order("created_at");
+  if (et) throw new Error(`tarefas: ${et.message}`);
+
   const hoje = diaLocal(agora);
   const { data: checks, error: ec } = await db
-    .from("checkin").select("missao_id, dia").eq("user_id", userId);
+    .from("checkin").select("missao_id, tarefa_id, dia").eq("user_id", userId);
   if (ec) throw new Error(`checkins: ${ec.message}`);
 
   const feitasHoje = new Set(
     (checks ?? []).filter((c) => c.dia === hoje).map((c) => c.missao_id as string),
   );
   const feitasSempre = new Set((checks ?? []).map((c) => c.missao_id as string));
+  const tarefaHoje = new Set(
+    (checks ?? []).filter((c) => c.dia === hoje).map((c) => c.tarefa_id as string),
+  );
+  const tarefaSempre = new Set((checks ?? []).map((c) => c.tarefa_id as string));
 
   const eventosDef = await obterEventosDef(db);
   const { data: resolvidos, error: er } = await db
@@ -177,7 +199,43 @@ export async function carregarJogo(db: SupabaseClient, userId: string, agora = n
       ...m,
       concluida: m.tipo === "diaria" ? feitasHoje.has(m.id) : feitasSempre.has(m.id),
     })),
+    tarefas: ((tarefasRows ?? []) as TarefaRow[]).map((t) => ({
+      ...t,
+      concluida: t.tipo === "diaria" ? tarefaHoje.has(t.id) : tarefaSempre.has(t.id),
+    })),
   };
+}
+
+/** Cria uma tarefa do usuário (recompensa vem do preset de dificuldade). */
+export async function criarTarefa(
+  db: SupabaseClient,
+  userId: string,
+  nova: NovaTarefa,
+): Promise<TarefaRow> {
+  const { xp, energia } = recompensaDe(nova.dificuldade);
+  const { data, error } = await db
+    .from("tarefa")
+    .insert({
+      user_id: userId,
+      titulo: nova.titulo,
+      descricao: nova.descricao,
+      dominio: nova.dominio,
+      tipo: nova.tipo,
+      dificuldade: nova.dificuldade,
+      xp,
+      energia,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(`criar tarefa: ${error.message}`);
+  return data as TarefaRow;
+}
+
+/** Arquiva (remove da lista) uma tarefa do usuário. */
+export async function arquivarTarefa(db: SupabaseClient, userId: string, tarefaId: string): Promise<void> {
+  const { error } = await db
+    .from("tarefa").update({ arquivada: true }).eq("user_id", userId).eq("id", tarefaId);
+  if (error) throw new Error(`arquivar tarefa: ${error.message}`);
 }
 
 export interface RespostaCheckin {
@@ -193,7 +251,41 @@ export interface RespostaCheckin {
   ouro: number;
 }
 
-/** Check-in de missão: valida, aplica engine, persiste tudo. */
+/** Núcleo do check-in: tick + recompensa + persistência + log, para qualquer fonte. */
+async function finalizarCheckin(
+  db: SupabaseClient,
+  userId: string,
+  row: PersonagemRow,
+  def: { dominio: Dominio; xp: number; energia: number },
+  titulo: string,
+  critico: boolean,
+  agora: Date,
+): Promise<RespostaCheckin> {
+  const aposTick = tick(paraEstado(row), agora).estado;
+  const r = aplicarCheckin(aposTick, def, critico, agora);
+
+  const { error: eu } = await db.from("personagem").update(paraUpdate(r.estado)).eq("user_id", userId);
+  if (eu) throw new Error(`salvar checkin: ${eu.message}`);
+
+  await db.from("evento_log").insert({
+    user_id: userId, tipo: "checkin", payload: { titulo, xp: r.xpGanho, critico },
+  });
+
+  return {
+    xpGanho: r.xpGanho,
+    energiaGanha: r.energiaGanha,
+    levelsGanhos: r.levelsGanhos,
+    momentum: r.momentumNovo,
+    critico,
+    level: r.estado.level,
+    xp: r.estado.xp,
+    xpProximo: xpParaProximoLevel(r.estado.level),
+    energia: Math.round(r.estado.energia),
+    ouro: r.estado.ouro,
+  };
+}
+
+/** Check-in de missão seedada: valida, aplica engine, persiste tudo. */
 export async function fazerCheckin(
   db: SupabaseClient,
   userId: string,
@@ -211,7 +303,6 @@ export async function fazerCheckin(
   const hoje = diaLocal(agora);
   const critico = !!prova && prova.trim().length >= 10;
 
-  // Registro primeiro (a unique (user_id, missao_id, dia) barra duplicata de diária).
   if (missao.tipo === "unica") {
     const { count } = await db
       .from("checkin").select("id", { count: "exact", head: true })
@@ -223,30 +314,40 @@ export async function fazerCheckin(
   });
   if (ei) throw new Error(ei.code === "23505" ? "missão já concluída hoje" : `checkin: ${ei.message}`);
 
-  // Tick até agora e aplica a recompensa.
-  const aposTick = tick(paraEstado(row), agora).estado;
-  const r = aplicarCheckin(aposTick, missao, critico, agora);
+  return finalizarCheckin(db, userId, row, missao, missao.titulo, critico, agora);
+}
 
-  const { error: eu } = await db.from("personagem").update(paraUpdate(r.estado)).eq("user_id", userId);
-  if (eu) throw new Error(`salvar checkin: ${eu.message}`);
+/** Check-in de tarefa do usuário: mesma economia, fonte = tabela `tarefa`. */
+export async function fazerCheckinTarefa(
+  db: SupabaseClient,
+  userId: string,
+  tarefaId: string,
+  prova: string | null,
+  agora = new Date(),
+): Promise<RespostaCheckin> {
+  const row = await obterPersonagem(db, userId);
+  if (!row) throw new Error("personagem não encontrado");
 
-  await db.from("evento_log").insert({
-    user_id: userId, tipo: "checkin",
-    payload: { missao: missao.titulo, xp: r.xpGanho, critico },
+  const { data: t, error: et } = await db
+    .from("tarefa").select("*").eq("id", tarefaId).eq("user_id", userId).maybeSingle();
+  if (et || !t) throw new Error("tarefa não encontrada");
+  const tarefa = t as TarefaRow;
+
+  const hoje = diaLocal(agora);
+  const critico = !!prova && prova.trim().length >= 10;
+
+  if (tarefa.tipo === "unica") {
+    const { count } = await db
+      .from("checkin").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).eq("tarefa_id", tarefaId);
+    if ((count ?? 0) > 0) throw new Error("tarefa única já concluída");
+  }
+  const { error: ei } = await db.from("checkin").insert({
+    user_id: userId, tarefa_id: tarefaId, dia: hoje, critico, prova: prova?.trim() || null,
   });
+  if (ei) throw new Error(ei.code === "23505" ? "tarefa já concluída hoje" : `checkin: ${ei.message}`);
 
-  return {
-    xpGanho: r.xpGanho,
-    energiaGanha: r.energiaGanha,
-    levelsGanhos: r.levelsGanhos,
-    momentum: r.momentumNovo,
-    critico,
-    level: r.estado.level,
-    xp: r.estado.xp,
-    xpProximo: xpParaProximoLevel(r.estado.level),
-    energia: Math.round(r.estado.energia),
-    ouro: r.estado.ouro,
-  };
+  return finalizarCheckin(db, userId, row, tarefa, tarefa.titulo, critico, agora);
 }
 
 export interface RespostaEvento {

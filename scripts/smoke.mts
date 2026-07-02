@@ -7,7 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
-import { carregarJogo, criarPersonagem, fazerCheckin, resolverEvento } from "../src/domain/game.service";
+import { carregarJogo, criarPersonagem, fazerCheckin, resolverEvento, criarTarefa, fazerCheckinTarefa } from "../src/domain/game.service";
 
 function envLocal(nome: string): string {
   const conteudo = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
@@ -80,4 +80,21 @@ try {
 }
 ok(bloqueouEvento, "evento já resolvido rejeitado");
 
-console.log("\nSMOKE OK — auth, RLS, seed, engine, estágios, eventos e persistência funcionando no banco real.");
+console.log("9. todo list do usuário: criar tarefa + check-in…");
+const tarefa = await criarTarefa(db, su.user.id, {
+  titulo: "Enviar 3 candidaturas", descricao: null, dominio: "carreira", tipo: "diaria", dificuldade: "media",
+});
+ok(tarefa.xp === 35 && tarefa.energia === 16, `recompensa vem do preset (média=35xp/16⚡) — veio ${tarefa.xp}xp/${tarefa.energia}⚡`);
+const jogo3 = await carregarJogo(db, su.user.id);
+ok((jogo3!.tarefas ?? []).some((t) => t.id === tarefa.id && !t.concluida), "tarefa aparece pendente na visão");
+const rt = await fazerCheckinTarefa(db, su.user.id, tarefa.id, null);
+ok(rt.xpGanho === 35, `check-in de tarefa credita 35 xp — veio ${rt.xpGanho}`);
+const jogo4 = await carregarJogo(db, su.user.id);
+ok(jogo4!.tarefas.find((t) => t.id === tarefa.id)!.concluida, "tarefa marcada concluída hoje");
+
+console.log("10. tarefa diária não pode repetir no mesmo dia…");
+let bloqueouTarefa = false;
+try { await fazerCheckinTarefa(db, su.user.id, tarefa.id, null); } catch { bloqueouTarefa = true; }
+ok(bloqueouTarefa, "check-in duplicado de tarefa diária rejeitado");
+
+console.log("\nSMOKE OK — auth, RLS, seed, engine, estágios, eventos, todo-list do usuário e persistência funcionando no banco real.");

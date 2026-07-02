@@ -1,83 +1,43 @@
 # Frente B — Casca desktop (widget always-on-top) com Tauri
 
-O jogo já expõe a rota enxuta **`/widget`** (só a cena viva + a frase do dia + os
-recursos, sem o chrome de missões). A casca desktop apenas embrulha essa rota numa
+O jogo expõe a rota enxuta **`/widget`** (só a cena viva + a frase do dia + os
+recursos, sem o chrome de missões). A casca desktop **Tauri** embrulha essa rota numa
 janela sem borda, sempre no topo, no canto da tela — o "Tamagotchi moderno".
 
-> **Status:** a rota `/widget` está pronta e testável no browser hoje
-> (`npm run dev` → http://localhost:3000/widget). A casca Tauri abaixo exige uma
-> instalação única de toolchain Rust que **ainda não está no ambiente** — por isso
-> está documentada, não commitada como projeto Rust. A Frente A (loop de vida)
-> funciona sem ela.
+> **Status:** scaffold Tauri v2 criado em `src-tauri/` (janela `widget` já configurada:
+> sem borda, always-on-top, 380×320, arrastável via `data-tauri-drag-region` no
+> `Widget.tsx`). Aponta para o dev server (`http://localhost:3000/widget`).
 
 ## Pré-requisitos (uma vez)
+1. **Rust** (rustup) + **MSVC Build Tools** (linker) — no Windows.
+2. **WebView2 runtime** — já vem no Windows 11.
+3. Dependências JS já no `package.json`: `@tauri-apps/cli`, `@tauri-apps/api`.
 
-1. **Rust** — instalar via https://rustup.rs (no Windows, `rustup-init.exe`).
-2. **Tauri CLI** — `npm i -D @tauri-apps/cli`.
-
-## Scaffold
-
+## Rodar em desenvolvimento
 ```bash
-npx tauri init
+npm run tauri dev
 ```
+Isso executa o `beforeDevCommand` (`npm run dev`, sobe o Next em :3000), espera a URL
+e abre a janela widget apontando para `/widget`. Auth: a janela usa o mesmo
+Supabase/cookies do app; logar uma vez em `/login` resolve a sessão.
 
-Responder ao wizard:
-- *App name:* `side-quest`
-- *Window title:* `Side Quest`
-- *Web assets (frontend dist):* não se aplica (usamos dev server / Next) — aceitar o default.
-- *dev server URL:* `http://localhost:3000/widget`
-- *frontend dev command:* `npm run dev`
-- *frontend build command:* `npm run build`
+## Configuração da janela (`src-tauri/tauri.conf.json`)
+A janela `widget` já vem com: `decorations:false`, `alwaysOnTop:true`, `url:"/widget"`,
+`380×320`, `resizable:true`. Para persistir posição/tamanho, adicionar o plugin
+[`@tauri-apps/plugin-window-state`](https://tauri.app/plugin/window-state/).
 
-## Configuração da janela (always-on-top, sem borda, cantinho)
-
-No `src-tauri/tauri.conf.json` gerado, ajustar o bloco `app.windows[0]`:
-
-```json
-{
-  "app": {
-    "windows": [
-      {
-        "label": "widget",
-        "url": "/widget",
-        "title": "Side Quest",
-        "width": 360,
-        "height": 300,
-        "resizable": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": false,
-        "transparent": false
-      }
-    ]
-  }
-}
-```
-
-- `decorations: false` + o `data-tauri-drag-region` que já está no `Widget.tsx` deixam
-  a janela arrastável pelo corpo.
-- `alwaysOnTop: true` mantém no canto sobre outras janelas.
-- Persistência de posição/tamanho: adicionar o plugin
-  [`@tauri-apps/plugin-window-state`](https://tauri.app/plugin/window-state/).
-
-## Rodar
-
+## Empacotar (instalador)
 ```bash
-npm run dev            # sobe o Next em :3000 (ou deixar o Tauri subir via beforeDevCommand)
-npx tauri dev          # abre a janela widget apontando para /widget
+npm run tauri build   # gera .msi/.exe no Windows
 ```
-
-Auth: a janela usa o mesmo Supabase/cookies do app web; logar uma vez em `/login`
-no browser embutido resolve a sessão.
-
-## Empacotar
-
-```bash
-npx tauri build        # gera o instalador (.msi/.exe no Windows)
-```
+**Atenção — modelo de frontend:** o app é SSR (Next.js na Vercel), não estático. Para o
+build de produção, a casca deve apontar para a **URL de produção** em vez de bundlar um
+frontend local: trocar `build.frontendDist` e `app.windows[0].url` para
+`https://side-quest-shun13.vercel.app/widget`. Isso exige a **Deployment Protection do
+Vercel desligada** (senão a rota redireciona para o login do Vercel). Em dev, tudo aponta
+para `localhost:3000` e funciona independentemente disso.
 
 ## Por que Tauri e não Electron
-
 Bundle ~10x menor, sem runtime Node exposto, shell em Rust chamando a mesma API/Supabase.
-O domain layer (`src/domain/*`) é puro e agnóstico à casca, então nada aqui acopla o
-jogo à plataforma — se um dia a casca mudar, o jogo não muda.
+O domain layer (`src/domain/*`) é puro e agnóstico à casca — se um dia a casca mudar, o
+jogo não muda.
